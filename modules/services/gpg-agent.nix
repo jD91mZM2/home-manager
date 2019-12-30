@@ -129,6 +129,22 @@ in
           configuration file.
         '';
       };
+
+      pinentryFlavor = mkOption {
+        type = types.nullOr (types.enum pkgs.pinentry.flavors);
+        example = "gnome3";
+        default = "gtk2";
+        description = ''
+          Which pinentry interface to use. If not null, the path to the
+          pinentry binary will be passed to gpg-agent via commandline and
+          thus overrides the pinentry option in gpg-agent.conf in the user's
+          home directory.
+          If not set at all, it'll pick qt, unlike the similar NixOS
+          module which tries to be a bit more intelligent. In fact,
+          the gnome3 flavor actually seems broken when not using the
+          system-wide option, so this is probably for the best.
+        '';
+      };
     };
   };
 
@@ -152,6 +168,9 @@ in
         ++
         optional (cfg.maxCacheTtlSsh != null)
           "max-cache-ttl-ssh ${toString cfg.maxCacheTtlSsh}"
+        ++
+        optional (cfg.pinentryFlavor != null)
+          "pinentry-program ${pkgs.pinentry.${cfg.pinentryFlavor}}/bin/pinentry"
         ++
         [ cfg.extraConfig ]
       );
