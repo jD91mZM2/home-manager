@@ -13,6 +13,16 @@ let
   + optionalString cfg.enableSshSupport
       "${pkgs.gnupg}/bin/gpg-connect-agent updatestartuptty /bye > /dev/null";
 
+  gpgAgent = pkgs.writeShellScript "gpg-agent.sh" ''
+    extraFlags=()
+    if [ -n "$GPG_WRAPPER_SMART_FLAVOR" ]; then
+      # TODO: Actually be intelligent here. This commit is mostly just
+      # to see if I'm on the right track.
+      extraFlags=("--pinentry-program" "${pkgs.pinentry."gtk2"}/bin/pinentry")
+    fi
+    "${pkgs.gnupg}/bin/gpg-agent" "$@" "''${extraFlags[@]}"
+  '';
+
 in
 
 {
@@ -133,16 +143,21 @@ in
       pinentryFlavor = mkOption {
         type = types.nullOr (types.enum pkgs.pinentry.flavors);
         example = "gnome3";
-        default = "gtk2";
+        default = null;
         description = ''
-          Which pinentry interface to use. If not null, the path to the
-          pinentry binary will be passed to gpg-agent via commandline and
-          thus overrides the pinentry option in gpg-agent.conf in the user's
-          home directory.
-          If not set at all, it'll pick qt, unlike the similar NixOS
-          module which tries to be a bit more intelligent. In fact,
-          the gnome3 flavor actually seems broken when not using the
-          system-wide option, so this is probably for the best.
+          The flavor of pinentry you want. This affects the popup that
+          prompts you for your passphrase when you do a GnuPG
+          operation such as signing something. The default is unset,
+          which instructs home-manager to detect your desktop
+          environment at runtime and inject the correct pinentry.
+
+          You can manually set it to use a static flavor here, but
+          beware that <literal>pinentry-gnome3</literal> doesn't work
+          great on non-gnome systems. You can fix it by adding the
+          following to your system config:
+          <literal>
+          services.dbus.packages = [ pkgs.gcr ];
+          </literal>
         '';
       };
     };
@@ -189,12 +204,6 @@ in
       home.file.".gnupg/sshcontrol".text = concatMapStrings (s: "${s}\n") cfg.sshKeys;
     })
 
-    # The systemd units below are direct translations of the
-    # descriptions in the
-    #
-    #   ${pkgs.gnupg}/share/doc/gnupg/examples/systemd-user
-    #
-    # directory.
     {
       systemd.user.services.gpg-agent = {
         Unit = {
@@ -207,8 +216,11 @@ in
         };
 
         Service = {
-          ExecStart = "${pkgs.gnupg}/bin/gpg-agent --supervised"
-            + optionalString cfg.verbose " --verbose";
+          Environment = ''
+            ${optionalString (cfg.pinentryFlavor == null) "GPG_WRAPPER_SMART_FLAVOR=1"}
+          '';
+          ExecStart = "${gpgAgent} --supervised"
+                      + optionalString cfg.verbose " --verbose";
           ExecReload = "${pkgs.gnupg}/bin/gpgconf --reload gpg-agent";
         };
       };
